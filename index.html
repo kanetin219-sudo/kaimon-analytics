@@ -93,9 +93,6 @@
   </span>
   <div class="d-flex align-items-center gap-2">
     <small class="text-muted d-none d-sm-inline" id="lastUpdated"></small>
-    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
-      <i class="bi bi-gear me-1"></i>設定
-    </button>
     <button class="btn btn-sm btn-primary" onclick="loadData()">
       <i class="bi bi-arrow-clockwise me-1"></i>更新
     </button>
@@ -105,13 +102,10 @@
 <!-- ===== メインコンテンツ ===== -->
 <div class="container-fluid py-4 px-3 px-md-4">
 
-  <!-- デモバナー -->
-  <div id="demoBanner" class="demo-banner mb-3 align-items-center gap-2" style="display:none;">
-    <i class="bi bi-info-circle-fill text-warning me-1"></i>
-    <span>デモデータを表示しています。</span>
-    <button class="btn btn-sm btn-warning ms-1" data-bs-toggle="modal" data-bs-target="#settingsModal">
-      GAS URLを設定する
-    </button>
+  <!-- エラーバナー -->
+  <div id="errorBanner" class="demo-banner mb-3 align-items-center gap-2" style="display:none;">
+    <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>
+    <span>データの取得に失敗しました。スプレッドシートの公開設定（リンクを知っている全員が閲覧可）を確認してください。</span>
   </div>
 
   <!-- ローディング -->
@@ -270,36 +264,6 @@
   </div><!-- /dashboard -->
 </div>
 
-<!-- ===== 設定モーダル ===== -->
-<div class="modal fade" id="settingsModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <div class="modal-header">
-        <h5 class="modal-title fw-bold"><i class="bi bi-gear me-2"></i>設定</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <label class="form-label fw-semibold">GAS Webapp URL</label>
-        <input type="url" class="form-control" id="gasUrlInput"
-          placeholder="https://script.google.com/macros/s/xxx/exec">
-        <div class="form-text mb-3">
-          Google Apps Script をデプロイして取得したURLを入力してください。<br>
-          設定方法は同梱の <code>gas_code.gs</code> 冒頭コメントを参照。
-        </div>
-        <div class="alert alert-info small mb-0 py-2">
-          <i class="bi bi-info-circle me-1"></i>
-          URLが未設定の場合はデモデータで動作します。
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
-        <button class="btn btn-primary" onclick="saveSettings()">
-          <i class="bi bi-save me-1"></i>保存して更新
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -308,7 +272,7 @@
 // ================================================================
 // 設定 & 状態
 // ================================================================
-let GAS_URL       = localStorage.getItem('kaimon_gas_url') || '';
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/1jdfpZdQcCCZa2A1-cCKBL9yxWUKJ3O7CyEQbQ71Jljc/gviz/tq?tqx=out:csv&gid=1497922169';
 let allData       = [];
 let currentFilter = 'all';
 let currentPeriod = 6;
@@ -338,33 +302,67 @@ function getDemoData() {
 }
 
 // ================================================================
+// CSV パーサー
+// ================================================================
+function parseCSV(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const values = parseCSVLine(line);
+    if (values.every(v => v === '')) continue;
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = values[idx] !== undefined ? values[idx] : ''; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+// ================================================================
 // データ読み込み
 // ================================================================
 async function loadData() {
   document.getElementById('loading').style.display = 'block';
   document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('errorBanner').style.display = 'none';
 
-  let isDemo = false;
-
-  if (!GAS_URL) {
+  let hasError = false;
+  try {
+    const res = await fetch(CSV_URL);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    allData = parseCSV(text);
+    if (allData.length === 0) throw new Error('データが空です');
+  } catch (e) {
+    console.warn('CSV取得失敗:', e);
     allData = getDemoData();
-    isDemo = true;
-  } else {
-    try {
-      const res = await fetch(GAS_URL);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const json = await res.json();
-      allData = Array.isArray(json) ? json : [];
-    } catch (e) {
-      console.warn('GAS取得失敗、デモデータで表示:', e);
-      allData = getDemoData();
-      isDemo = true;
-    }
+    hasError = true;
   }
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
-  document.getElementById('demoBanner').style.display = isDemo ? 'flex' : 'none';
+  if (hasError) document.getElementById('errorBanner').style.display = 'flex';
   document.getElementById('lastUpdated').textContent =
     '最終更新: ' + new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
 
@@ -724,16 +722,6 @@ function renderTable() {
 }
 
 // ================================================================
-// 設定
-// ================================================================
-function saveSettings() {
-  GAS_URL = document.getElementById('gasUrlInput').value.trim();
-  localStorage.setItem('kaimon_gas_url', GAS_URL);
-  bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
-  loadData();
-}
-
-// ================================================================
 // ユーティリティ
 // ================================================================
 function dateStr(d) {
@@ -747,7 +735,6 @@ function toYYYYMM(date) {
 // 起動
 // ================================================================
 window.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('gasUrlInput').value = GAS_URL;
   loadData();
 });
 </script>
