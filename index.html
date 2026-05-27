@@ -217,7 +217,14 @@
       </div>
       <div class="col-md-4">
         <div class="card chart-card p-3 h-100">
-          <h6 class="fw-bold mb-3">📅 今月の状況</h6>
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="fw-bold mb-0">📅 月別サマリー</h6>
+            <div class="d-flex align-items-center gap-1">
+              <button class="btn btn-xs btn-outline-secondary px-2" onclick="shiftMonth(-1)"><i class="bi bi-chevron-left"></i></button>
+              <span class="small fw-semibold" id="selectedMonthLabel" style="min-width:42px; text-align:center;"></span>
+              <button class="btn btn-xs btn-outline-secondary px-2" id="nextMonthBtn" onclick="shiftMonth(1)"><i class="bi bi-chevron-right"></i></button>
+            </div>
+          </div>
           <div id="thisMonthStats"></div>
         </div>
       </div>
@@ -277,6 +284,7 @@ let allData       = [];
 let currentFilter = 'all';
 let currentPeriod = 6;
 let charts        = {};
+let selectedMonth = '';   // YYYY-MM 形式。空なら今月
 
 // ================================================================
 // デモデータ
@@ -583,21 +591,40 @@ function updateAgeChart() {
 }
 
 // ================================================================
-// 今月の状況
+// 月別サマリー（◀▶で月切り替え可）
 // ================================================================
+function shiftMonth(delta) {
+  const base = selectedMonth || toYYYYMM(new Date());
+  const [y, m] = base.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  selectedMonth = toYYYYMM(d);
+  updateThisMonth();
+}
+
 function updateThisMonth() {
-  const now = new Date();
-  const thisMonth = toYYYYMM(now);
-  const tmData = allData.filter(d => dateStr(d).startsWith(thisMonth));
+  const now      = new Date();
+  const todayStr = toYYYYMM(now);
+  if (!selectedMonth) selectedMonth = todayStr;
+
+  // ラベル更新（例：5月, 4月）
+  const [sy, sm] = selectedMonth.split('-').map(Number);
+  document.getElementById('selectedMonthLabel').textContent = sm + '月';
+
+  // 次月ボタン：今月より先はdisable
+  const nextBtn = document.getElementById('nextMonthBtn');
+  if (nextBtn) nextBtn.disabled = (selectedMonth >= todayStr);
+
+  const tmData = allData.filter(d => dateStr(d).startsWith(selectedMonth));
 
   const nyukai  = tmData.filter(d => statusGroup(d['入会'])==='入会').length;
   const kentou  = tmData.filter(d => statusGroup(d['入会'])==='検討中').length;
   const miokuri = tmData.filter(d => statusGroup(d['入会'])==='見送り').length;
   const rate    = tmData.length > 0 ? Math.round(nyukai / tmData.length * 100) : 0;
 
-  // 期限が近い（30日以内）
+  // 期限が近い（30日以内）— 今月表示時のみ
   const today    = new Date();
-  const upcoming = allData
+  const isThisMonth = (selectedMonth === todayStr);
+  const upcoming = isThisMonth ? allData
     .filter(d => {
       if (statusGroup(d['入会']) !== '検討中') return false;
       const dl = d['検討中の場合の期限'];
@@ -605,11 +632,15 @@ function updateThisMonth() {
       const diff = (new Date(dl) - today) / 86400000;
       return diff >= 0 && diff <= 30;
     })
-    .sort((a,b) => new Date(a['検討中の場合の期限']) - new Date(b['検討中の場合の期限']));
+    .sort((a,b) => new Date(a['検討中の場合の期限']) - new Date(b['検討中の場合の期限']))
+    : [];
+
+  const isCurrentMonth = selectedMonth === todayStr;
+  const monthLabel = isCurrentMonth ? `${sm}月（今月）の実績` : `${sy}年${sm}月の実績`;
 
   let html = `
     <div class="mb-3">
-      <div class="text-muted small mb-2 fw-semibold">${now.getMonth()+1}月の実績</div>
+      <div class="text-muted small mb-2 fw-semibold">${monthLabel}</div>
       <div class="d-flex gap-2 flex-wrap">
         <div class="text-center p-2 rounded" style="background:#EEF2FF; min-width:60px;">
           <div class="fw-bold" style="color:#4F46E5; font-size:1.4rem;">${tmData.length}</div>
@@ -651,6 +682,10 @@ function updateThisMonth() {
       </div>`;
     });
     html += '</div></div>';
+  }
+
+  if (tmData.length === 0) {
+    html += `<div class="text-center text-muted small py-3">この月のデータはありません</div>`;
   }
 
   document.getElementById('thisMonthStats').innerHTML = html;
