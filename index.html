@@ -390,17 +390,17 @@ function updateAll() {
 // ================================================================
 function updateSummary() {
   const total   = allData.length;
-  const nyukai  = allData.filter(d => d['入会'] === '入会').length;
-  const kentou  = allData.filter(d => d['入会'] === '検討中').length;
+  const nyukai  = allData.filter(d => statusGroup(d['入会']) === '入会').length;
+  const kentou  = allData.filter(d => statusGroup(d['入会']) === '検討中').length;
   const rate    = total > 0 ? Math.round(nyukai / total * 100) : 0;
 
   const now = new Date();
   const thisMonth = toYYYYMM(now);
   const tmData    = allData.filter(d => dateStr(d).startsWith(thisMonth));
-  const tmNyukai  = tmData.filter(d => d['入会'] === '入会').length;
+  const tmNyukai  = tmData.filter(d => statusGroup(d['入会']) === '入会').length;
 
   const today   = new Date();
-  const expired = allData.filter(d => d['入会'] === '検討中' && d['検討中の場合の期限'] && new Date(d['検討中の場合の期限']) < today).length;
+  const expired = allData.filter(d => statusGroup(d['入会']) === '検討中' && d['検討中の場合の期限'] && new Date(d['検討中の場合の期限']) < today).length;
 
   document.getElementById('statTotal').textContent   = total;
   document.getElementById('statTotalSub').textContent = '今月 ' + tmData.length + '件';
@@ -437,7 +437,7 @@ function updateMonthlyChart() {
     if (!m || m.length < 7) return;
     if (!map[m]) map[m] = {total:0, nyukai:0};
     map[m].total++;
-    if (d['入会'] === '入会') map[m].nyukai++;
+    if (statusGroup(d['入会']) === '入会') map[m].nyukai++;
   });
 
   let months = Object.keys(map).sort();
@@ -482,7 +482,7 @@ function updateStaffTable() {
     const s = d['担当者'] || '不明';
     if (!map[s]) map[s] = {total:0,nyukai:0};
     map[s].total++;
-    if (d['入会']==='入会') map[s].nyukai++;
+    if (statusGroup(d['入会'])==='入会') map[s].nyukai++;
   });
 
   const list = Object.entries(map).sort((a,b) => b[1].total - a[1].total);
@@ -515,7 +515,7 @@ function updateStaffTable() {
 // ================================================================
 function updateGenreChart() {
   const map = {};
-  allData.filter(d => d['入会']==='入会').forEach(d => {
+  allData.filter(d => statusGroup(d['入会'])==='入会').forEach(d => {
     const g = d['撮影ジャンル'] || 'その他';
     map[g] = (map[g] || 0) + 1;
   });
@@ -547,7 +547,7 @@ function updateAgeChart() {
     const age = parseInt(d['年齢'] || '0');
     const key = age < 25 ? '〜24歳' : age < 30 ? '25-29歳' : age < 35 ? '30-34歳' : age < 40 ? '35-39歳' : '40歳〜';
     bands[key].t++;
-    if (d['入会']==='入会') bands[key].n++;
+    if (statusGroup(d['入会'])==='入会') bands[key].n++;
   });
 
   const labels = Object.keys(bands);
@@ -580,16 +580,16 @@ function updateThisMonth() {
   const thisMonth = toYYYYMM(now);
   const tmData = allData.filter(d => dateStr(d).startsWith(thisMonth));
 
-  const nyukai  = tmData.filter(d => d['入会']==='入会').length;
-  const kentou  = tmData.filter(d => d['入会']==='検討中').length;
-  const miokuri = tmData.filter(d => d['入会']==='見送り').length;
+  const nyukai  = tmData.filter(d => statusGroup(d['入会'])==='入会').length;
+  const kentou  = tmData.filter(d => statusGroup(d['入会'])==='検討中').length;
+  const miokuri = tmData.filter(d => statusGroup(d['入会'])==='見送り').length;
   const rate    = tmData.length > 0 ? Math.round(nyukai / tmData.length * 100) : 0;
 
   // 期限が近い（30日以内）
   const today    = new Date();
   const upcoming = allData
     .filter(d => {
-      if (d['入会'] !== '検討中') return false;
+      if (statusGroup(d['入会']) !== '検討中') return false;
       const dl = d['検討中の場合の期限'];
       if (!dl) return false;
       const diff = (new Date(dl) - today) / 86400000;
@@ -663,7 +663,7 @@ function renderTable() {
   const today  = new Date();
 
   let filtered = allData.filter(d => {
-    if (currentFilter !== 'all' && d['入会'] !== currentFilter) return false;
+    if (currentFilter !== 'all' && statusGroup(d['入会']) !== currentFilter) return false;
     if (search && !(d['お名前'] || '').toLowerCase().includes(search)) return false;
     return true;
   });
@@ -673,25 +673,28 @@ function renderTable() {
 
   let html = '';
   filtered.forEach(d => {
-    const status   = d['入会'] || '';
-    const deadline = d['検討中の場合の期限'] || '';
-    const expired  = deadline && new Date(deadline) < today;
+    const status    = d['入会'] || '';
+    const grp       = statusGroup(status);
+    const deadline  = d['検討中の場合の期限'] || '';
+    const expired   = deadline && new Date(deadline) < today;
 
     let statusHtml = '';
     let rowClass   = '';
 
-    if (status === '入会') {
-      statusHtml = '<span class="status-pill status-nyukai">✓ 入会</span>';
-    } else if (status === '検討中') {
+    if (grp === '入会') {
+      statusHtml = `<span class="status-pill status-nyukai">✓ ${status}</span>`;
+    } else if (grp === '検討中') {
       if (expired) {
-        statusHtml = '<span class="status-pill status-expired">⚠ 検討中</span>';
+        statusHtml = `<span class="status-pill status-expired">⚠ ${status}</span>`;
         rowClass   = 'row-expired';
       } else {
-        statusHtml = '<span class="status-pill status-kentou">⏳ 検討中</span>';
+        statusHtml = `<span class="status-pill status-kentou">⏳ ${status}</span>`;
         rowClass   = 'row-kentou';
       }
+    } else if (grp === '見送り') {
+      statusHtml = `<span class="status-pill status-miokuri">${status}</span>`;
     } else {
-      statusHtml = '<span class="status-pill status-miokuri">見送り</span>';
+      statusHtml = `<span class="status-pill status-miokuri">${status}</span>`;
     }
 
     let deadlineHtml = '<span class="text-muted small">—</span>';
@@ -728,10 +731,22 @@ function renderTable() {
 }
 
 // ================================================================
+// ステータス判定（実際のスプレッドシートの値に対応）
+// ================================================================
+function statusGroup(val) {
+  if (val === '希望・フォーム回答済' || val === '希望・入金まで完了') return '入会';
+  if (val === '検討中' || val === '希望・フォーム未回答')             return '検討中';
+  if (val === '見送る'  || val === '案内していないため無し')           return '見送り';
+  return '不明';
+}
+
+// ================================================================
 // ユーティリティ
 // ================================================================
 function dateStr(d) {
-  return d['実施日'] || d['タイムスタンプ'] || '';
+  // スラッシュ区切りをハイフン区切りに統一（例: 2026/02/01 → 2026-02-01）
+  const raw = d['実施日'] || d['タイムスタンプ'] || '';
+  return raw.replace(/\//g, '-');
 }
 function toYYYYMM(date) {
   return date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0');
